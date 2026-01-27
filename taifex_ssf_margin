@@ -1,0 +1,131 @@
+import requests
+import time
+import pandas as pd
+from bs4 import BeautifulSoup
+from io import StringIO
+
+
+def fetch_equity_futures_margin():
+    """
+    抓取康和期貨股票期貨保證金資料，並與期交所股票代碼表合併
+    回傳 merged_df
+    """
+
+    url = 'https://www.concordfutures.com.tw/Promote/ProductInformation/EquityFuturesMargin.aspx'
+
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Referer": url
+    }
+
+    session = requests.Session()
+    all_data_frames = []
+
+    # -------------------------------------------------
+    # 工具函數
+    # -------------------------------------------------
+    def extract_table_by_id(html):
+        soup = BeautifulSoup(html, 'html.parser')
+        table = soup.find('table', {'id': 'gvResult'})
+        if table is not None:
+            return pd.read_html(StringIO(str(table)))[0]
+        return None
+
+    def get_asp_params(html):
+        soup = BeautifulSoup(html, 'html.parser')
+        return {
+            "__VIEWSTATE": soup.find('input', {'id': '__VIEWSTATE'})['value'],
+            "__VIEWSTATEGENERATOR": soup.find('input', {'id': '__VIEWSTATEGENERATOR'})['value'],
+            "__EVENTVALIDATION": soup.find('input', {'id': '__EVENTVALIDATION'})['value']
+        }
+
+    # -------------------------------------------------
+    # Step 1. 先 GET 一次，取得 ASP.NET 參數
+    # -------------------------------------------------
+    resp = session.get(url, headers=headers, timeout=20)
+    params = get_asp_params(resp.text)
+
+    # -------------------------------------------------
+    # Step 2. 模擬選擇「股票期貨」下拉選單（關鍵）
+    # -------------------------------------------------
+    payload = {
+        "__EVENTTARGET": "ctl00$ContentPlaceHolder1$ddlMarginType",
+        "__EVENTARGUMENT": "",
+        "__VIEWSTATE": params["__VIEWSTATE"],
+        "__VIEWSTATEGENERATOR": params["__VIEWSTATEGENERATOR"],
+        "__EVENTVALIDATION": params["__EVENTVALIDATION"],
+        "ctl00$ContentPlaceHolder1$ddlMarginType": "1"
+    }
+
+    resp = session.post(url, data=payload, headers=headers, timeout=20)
+
+    df = extract_table_by_id(resp.text)
+    if df is None:
+        raise RuntimeError("選擇保證金類型後仍找不到 gvResult 表格")
+
+    all_data_frames.append(df)
+
+    # -------------------------------------------------
+    # Step 3. 自動翻頁
+    # -------------------------------------------------
+    current_page = 2
+    while True:
+        params = get_asp_params(resp.text)
+
+        payload = {
+            "__EVENTTARGET": "gvResult",
+            "__EVENTARGUMENT": f"Page${current_page}",
+            "__VIEWSTATE": params["__VIEWSTATE"],
+            "__VIEWSTATEGENERATOR": params["__VIEWSTATEGENERATOR"],
+            "__EVENTVALIDATION": params["__EVENTVALIDATION"],
+            "ctl00$ContentPlaceHolder1$ddlMarginType": "1"
+        }
+
+        resp = session.post(url, data=payload, headers=headers, timeout=20)
+        new_df = extract_table_by_id(resp.text)
+
+        # 終止條件：無資料或與上一頁完全相同
+        if new_df is None or new_df.equals(all_data_frames[-1]):
+            break
+
+        all_data_frames.append(new_df)
+        current_page += 1
+        time.sleep(1.0)
+
+    # -------------------------------------------------
+    # Step 4. 合併所有頁面
+    # -------------------------------------------------
+    final_df = (
+        pd.concat(all_data_frames, ignore_index=True)
+        .drop_duplicates()
+    )
+
+    final_df['股票代碼'] = final_df['股票代碼'].astype(str)
+    final_df['mini'] = final_df['股票名稱'].astype(str).str.contains('小型')
+
+    # -------------------------------------------------
+    # Step 5. 取得期交所股票代碼表
+    # -------------------------------------------------
+    tmp = pd.read_html(
+        "https://www.taifex.com.tw/cht/5/stockMargining",
+        encoding='utf-8'
+    )
+
+    symbol_list = tmp[0].iloc[:, 1:4]
+    symbol_list.columns = ['symbol', 'stock_code', 'name']
+    symbol_list['stock_code'] = symbol_list['stock_code'].astype(str)
+    symbol_list['mini'] = symbol_list['name'].astype(str).str.contains('小型')
+
+    # -------------------------------------------------
+    # Step 6. Merge
+    # -------------------------------------------------
+    merged_df = pd.merge(
+        symbol_list,
+        final_df,
+        left_on=['stock_code', 'mini'],
+        right_on=['股票代碼', 'mini'],
+        how='left'
+    )
+
+    return merged_df
