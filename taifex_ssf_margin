@@ -1,10 +1,6 @@
-import requests
-import time
-import pandas as pd
+import requests, time, pandas as pd
 from bs4 import BeautifulSoup
 from io import StringIO
-
-
 def fetch_equity_futures_margin():
     """
     抓取康和期貨股票期貨保證金資料，並與期交所股票代碼表合併
@@ -49,20 +45,30 @@ def fetch_equity_futures_margin():
     # -------------------------------------------------
     # Step 2. 模擬選擇「股票期貨」下拉選單（關鍵）
     # -------------------------------------------------
-    payload = {
-        "__EVENTTARGET": "ctl00$ContentPlaceHolder1$ddlMarginType",
-        "__EVENTARGUMENT": "",
-        "__VIEWSTATE": params["__VIEWSTATE"],
-        "__VIEWSTATEGENERATOR": params["__VIEWSTATEGENERATOR"],
-        "__EVENTVALIDATION": params["__EVENTVALIDATION"],
-        "ctl00$ContentPlaceHolder1$ddlMarginType": "1"
-    }
-
-    resp = session.post(url, data=payload, headers=headers, timeout=20)
-
-    df = extract_table_by_id(resp.text)
-    if df is None:
-        raise RuntimeError("選擇保證金類型後仍找不到 gvResult 表格")
+    max_retries = 3
+    for i in range(max_retries):
+        payload = {
+            "__EVENTTARGET": "ctl00$ContentPlaceHolder1$ddlMarginType",
+            "__EVENTARGUMENT": "",
+            "__VIEWSTATE": params["__VIEWSTATE"],
+            "__VIEWSTATEGENERATOR": params["__VIEWSTATEGENERATOR"],
+            "__EVENTVALIDATION": params["__EVENTVALIDATION"],
+            "ctl00$ContentPlaceHolder1$ddlMarginType": "1"
+        }
+        resp = session.post(url, data=payload, headers=headers, timeout=20)
+        df = extract_table_by_id(resp.text)
+        
+        if df is not None:
+            all_data_frames.append(df)
+            break  # 成功抓取，跳出重試迴圈
+        else:
+            print(f"嘗試第 {i+1} 次失敗，正在重試...")
+            time.sleep(i) # 給伺服器一點喘息時間
+            # 重新取得最新的參數（這點很重要，因為 Viewstate 可能會更新）
+            params = get_asp_params(resp.text) 
+    else:
+        # 如果迴圈跑完都沒 break，才噴錯誤
+        raise RuntimeError("選擇保證金類型後，多次重試仍找不到 gvResult 表格")
 
     all_data_frames.append(df)
 
@@ -103,6 +109,13 @@ def fetch_equity_futures_margin():
 
     final_df['股票代碼'] = final_df['股票代碼'].astype(str)
     final_df['mini'] = final_df['股票名稱'].astype(str).str.contains('小型')
+    final_df = (
+        final_df[final_df['股票代碼'].str.len() < 8]
+        .rename(columns={'股票代碼': 'stock_symbol'})
+        .copy()
+    )
+    cols_to_fix = ['期貨價格', '成交量', '維持保證金', '原始保證金', '原始保證金適用比例(%)']
+    final_df[cols_to_fix] = final_df[cols_to_fix].apply(pd.to_numeric, errors='coerce')
 
     # -------------------------------------------------
     # Step 5. 取得期交所股票代碼表
@@ -113,8 +126,8 @@ def fetch_equity_futures_margin():
     )
 
     symbol_list = tmp[0].iloc[:, 1:4]
-    symbol_list.columns = ['symbol', 'stock_code', 'name']
-    symbol_list['stock_code'] = symbol_list['stock_code'].astype(str)
+    symbol_list.columns = ['symbol', 'stock_symbol', 'name']
+    symbol_list['stock_symbol'] = symbol_list['stock_symbol'].astype(str)
     symbol_list['mini'] = symbol_list['name'].astype(str).str.contains('小型')
 
     # -------------------------------------------------
@@ -123,9 +136,8 @@ def fetch_equity_futures_margin():
     merged_df = pd.merge(
         symbol_list,
         final_df,
-        left_on=['stock_code', 'mini'],
-        right_on=['股票代碼', 'mini'],
+        left_on=['stock_symbol', 'mini'],
+        right_on=['stock_symbol', 'mini'],
         how='left'
     )
-
     return merged_df
