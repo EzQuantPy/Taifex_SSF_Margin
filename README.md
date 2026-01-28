@@ -1,7 +1,4 @@
-<img width="1301" height="506" alt="image" src="https://github.com/user-attachments/assets/d0f19006-42f1-4c20-8159-ea80492fac90" /># Equity Futures Margin Crawler
-
 本專案用於 **自動抓取康和期貨股票期貨保證金資料**，並與 **台灣期貨交易所（TAIFEX）股票代碼表** 進行整合，產出一份可直接用於量化分析或風控計算的完整資料表。
-
 <img width="1301" height="506" alt="image" src="https://github.com/user-attachments/assets/ea74cd3c-235e-43dd-a92a-65bc8ac91c43" />
 
 核心重點在於：
