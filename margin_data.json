@@ -4,6 +4,7 @@
     "symbol":"TXF",
     "name":"臺股期貨",
     "nickName":"大台",
+    "multiple":200,
     "MaintainMargin":538000,
     "initialMargin":701000
   },
@@ -12,6 +13,7 @@
     "symbol":"MXF",
     "name":"小型臺指",
     "nickName":"小台",
+    "multiple":50,
     "MaintainMargin":134500,
     "initialMargin":175250
   },
@@ -20,6 +22,7 @@
     "symbol":"TMF",
     "name":"微型臺指期貨",
     "nickName":"微台",
+    "multiple":10,
     "MaintainMargin":26900,
     "initialMargin":35050
   },
@@ -28,6 +31,7 @@
     "symbol":"SRF",
     "name":"小型元大台灣50ETF期貨",
     "nickName":"小型0050期",
+    "multiple":1000,
     "MaintainMargin":6700,
     "initialMargin":8700
   },
@@ -36,6 +40,7 @@
     "symbol":"NYF",
     "name":"元大台灣50ETF期貨",
     "nickName":"0050期貨",
+    "multiple":10000,
     "MaintainMargin":67000,
     "initialMargin":87000
   }
